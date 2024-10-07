@@ -55,15 +55,50 @@ function getLineColor(line) {
   return lineColors[line] || '#000000';
 }
 
-// 행정구역 데이터 불러오기
-var adminDataPromise = fetch('seoul_dong.geojson')
+// 행정구역 데이터 불러오기 (서울, 경기도 및 인천)
+var adminDataPromiseSeoul = fetch('seoul_dong.geojson')
   .then(response => response.json())
   .then(data => {
-    adminAreas = data;
+    return { area: 'seoul', data: data };
+  })
+  .catch(error => {
+    console.error('서울 행정구역 데이터를 불러오는 중 에러 발생:', error);
+    alert('서울 행정구역 데이터를 불러오는 중 에러가 발생했습니다.');
+  });
+
+var adminDataPromiseGyeonggi = fetch('gyeonggi_dong_fixed_with_all_levels.geojson')
+  .then(response => response.json())
+  .then(data => {
+    return { area: 'gyeonggi', data: data };
+  })
+  .catch(error => {
+    console.error('경기도 행정구역 데이터를 불러오는 중 에러 발생:', error);
+    alert('경기도 행정구역 데이터를 불러오는 중 에러가 발생했습니다.');
+  });
+
+var adminDataPromiseIncheon = fetch('incheon_dong_fixed_with_all_levels.geojson')
+  .then(response => response.json())
+  .then(data => {
+    return { area: 'incheon', data: data };
+  })
+  .catch(error => {
+    console.error('인천 행정구역 데이터를 불러오는 중 에러 발생:', error);
+    alert('인천 행정구역 데이터를 불러오는 중 에러가 발생했습니다.');
+  });
+
+Promise.all([adminDataPromiseSeoul, adminDataPromiseGyeonggi, adminDataPromiseIncheon])
+  .then(results => {
+    // 서울, 경기도, 인천 데이터를 하나의 FeatureCollection으로 결합
+    adminAreas = results.reduce((acc, result) => {
+      if (result) {
+        acc.features = acc.features.concat(result.data.features);
+      }
+      return acc;
+    }, { type: 'FeatureCollection', features: [] });
 
     // RBush를 사용하여 행정구역 인덱싱
     adminAreasTree = rbush();
-    var adminItems = adminAreas.features.map(function(feature) {
+    var adminItems = adminAreas.features.map(function (feature) {
       var bbox = turf.bbox(feature);
       return {
         minX: bbox[0],
@@ -86,10 +121,11 @@ var adminDataPromise = fetch('seoul_dong.geojson')
   })
   .catch(error => {
     console.error('행정구역 데이터를 불러오는 중 에러 발생:', error);
-    alert('행정구역 데이터를 불러오는 중 에러가 발생했습니다.');
   });
 
-dataPromises.push(adminDataPromise);
+dataPromises.push(adminDataPromiseSeoul);
+dataPromises.push(adminDataPromiseGyeonggi);
+dataPromises.push(adminDataPromiseIncheon);
 
 // 지하철역 데이터 불러오기
 var subwayDataPromise = fetch('seoul_metro.geojson')
