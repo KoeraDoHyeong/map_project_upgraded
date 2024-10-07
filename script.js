@@ -32,7 +32,7 @@ var subwayStationsTree; // 지하철역 RBush 인덱스
 // 데이터 로드 프로미스 배열
 var dataPromises = [];
 
-// 노선 색상을 가져오는 함수 (중복 제거)
+// 노선 색상을 가져오는 함수
 function getLineColor(line) {
   const lineColors = {
     '1호선': '#0052A4',
@@ -201,9 +201,8 @@ function displayKeywords() {
     keywordListElement.textContent = '생성된 키워드가 없습니다.';
   }
 }
-// ... 기존 코드 ...
 
-// 범위 내 결과를 표시하는 함수 추가
+// 범위 내 결과를 표시하는 함수
 function displayResults(areaNames, stationNames) {
   var areaList = document.getElementById('area-list');
   areaList.innerHTML = ''; // 이전 결과 제거
@@ -229,7 +228,7 @@ function displayResults(areaNames, stationNames) {
   areaList.innerHTML = resultHTML;
 }
 
-// generateKeywords 함수 수정
+// 키워드 생성 함수
 function generateKeywords(clickedPoint, radius) {
   // 선택된 병원 분과 가져오기
   var selectedDepartment = document.getElementById('department-select').value;
@@ -294,6 +293,25 @@ function generateKeywords(clickedPoint, radius) {
       if (isInside) {
         const stationName = station.properties.name + '역';
         insideStationsSet.add(stationName);
+
+        // 역이 속한 노선의 색상 가져오기
+        const lineColor = getLineColor(station.properties.line);
+
+        // 커스텀 심볼(별표) 추가 (해당 역의 색상 적용)
+        const icon = L.divIcon({
+          className: 'custom-icon',
+          html: `
+            <div style="
+              color: ${lineColor};
+              font-size: 25px;
+              opacity: 0.85;
+              text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.3);
+            ">★</div>`,
+          iconSize: [25, 25],
+          iconAnchor: [12, 12]
+        });
+
+        L.marker([lat, lng], { icon: icon }).addTo(markerLayer).bindPopup(stationName);
       }
     } else {
       console.error('지하철역 좌표 오류 (숫자가 아님):', { lat, lng });
@@ -331,7 +349,9 @@ function generateKeywords(clickedPoint, radius) {
 // 강조 표시 함수 (행정구역만 강조)
 function highlightIntersectingAreas(areaNames) {
   var highlightFeatures = adminAreas.features.filter(function (feature) {
-    return areaNames.includes(feature.properties.adm_nm.replace('서울특별시 ', '').trim());
+    let areaName = feature.properties.adm_nm.replace('서울특별시 ', '').trim();
+    areaName = normalizeDongName(areaName);
+    return areaNames.includes(areaName);
   });
 
   if (highlightLayer) {
@@ -373,13 +393,49 @@ map.on('click', function (e) {
   generateKeywords(clickedPoint, radius);
 });
 
-// 주소 검색 버튼 가져오기
-var searchAddressBtn = document.getElementById('search-address-btn');
+// 주소 입력 필드와 자동 완성 결과 리스트 요소 가져오기
 var addressInput = document.getElementById('address-input');
+var suggestionList = document.getElementById('suggestion-list');
+var searchAddressBtn = document.getElementById('search-address-btn');
 var departmentSelect = document.getElementById('department-select');
 
-// 주소 검색 버튼 클릭 이벤트 리스너 추가
+// 엔터 키 입력 시 검색 실행
+addressInput.addEventListener('keydown', function(event) {
+  if (event.key === 'Enter') {
+    event.preventDefault(); // 폼 제출 방지
+    searchAddress();
+  }
+});
+
+// 검색 버튼 클릭 이벤트
 searchAddressBtn.addEventListener('click', function() {
+  searchAddress();
+});
+
+// 입력 이벤트 리스너 추가
+addressInput.addEventListener('input', function() {
+  var query = addressInput.value.trim();
+  if (!query) {
+    suggestionList.innerHTML = '';
+    return;
+  }
+
+  // Kakao 장소 검색 서비스 객체 생성
+  var places = new kakao.maps.services.Places();
+
+  // 키워드로 장소 검색
+  places.keywordSearch(query, function(result, status) {
+    if (status === kakao.maps.services.Status.OK) {
+      // 검색 결과를 표시
+      displaySuggestions(result);
+    } else {
+      suggestionList.innerHTML = '';
+    }
+  });
+});
+
+// 검색 함수 정의
+function searchAddress() {
   var address = addressInput.value.trim();
   if (!address) {
     alert('검색할 주소를 입력하세요.');
@@ -393,25 +449,27 @@ searchAddressBtn.addEventListener('click', function() {
     return;
   }
 
-  // OpenStreetMap의 Nominatim API를 사용하여 주소 지오코딩
-  var geocodeUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}`;
+  // Kakao 장소 검색 서비스 객체 생성
+  var places = new kakao.maps.services.Places();
 
-  fetch(geocodeUrl)
-    .then(response => response.json())
-    .then(data => {
-      if (data.length === 0) {
-        alert('해당 주소를 찾을 수 없습니다. 다른 주소를 입력해보세요.');
-        return;
-      }
+  // 키워드로 장소 검색
+  places.keywordSearch(address, function(result, status) {
+    if (status === kakao.maps.services.Status.OK) {
+      // 첫 번째 결과 사용
+      var item = result[0];
+      addressInput.value = item.address_name;
 
-      // 첫 번째 결과의 위도와 경도 사용
-      var lat = parseFloat(data[0].lat);
-      var lon = parseFloat(data[0].lon);
-
-      // 지도 위치 이동 및 클릭 이벤트 시뮬레이션
-      map.setView([lat, lon], 14);
+      // 선택된 주소의 좌표를 가져옵니다.
+      var lat = parseFloat(item.y);
+      var lon = parseFloat(item.x);
 
       var clickedPoint = L.latLng(lat, lon);
+
+      // 지도 이동 및 마커 표시 등
+      map.setView([lat, lon], 14);
+
+      // 반경 값 가져오기 (미터 단위)
+      var radius = parseInt(radiusInput.value) || 1000;
 
       // 이전 마커와 원 제거
       markerLayer.clearLayers();
@@ -429,12 +487,32 @@ searchAddressBtn.addEventListener('click', function() {
 
       // 키워드 생성 함수 호출
       generateKeywords(clickedPoint, radius);
-    })
-    .catch(error => {
-      console.error('주소 지오코딩 중 에러 발생:', error);
-      alert('주소를 검색하는 중 오류가 발생했습니다.');
+
+      // 자동 완성 결과 리스트 닫기
+      suggestionList.innerHTML = '';
+    } else {
+      alert('해당 주소를 찾을 수 없습니다. 다른 주소를 입력해보세요.');
+    }
+  });
+}
+
+// 검색 결과를 표시하는 함수
+function displaySuggestions(suggestions) {
+  suggestionList.innerHTML = '';
+  suggestions.forEach(function(item) {
+    var listItem = document.createElement('li');
+    listItem.textContent = item.address_name;
+    listItem.addEventListener('click', function() {
+      // 주소를 입력 필드에 설정하고, 리스트를 비웁니다.
+      addressInput.value = item.address_name;
+      suggestionList.innerHTML = '';
+
+      // 선택된 주소로 검색 실행
+      searchAddress();
     });
-});
+    suggestionList.appendChild(listItem);
+  });
+}
 
 // 키워드 다운로드 기능
 document.getElementById('download-btn').addEventListener('click', function() {
